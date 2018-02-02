@@ -24,6 +24,7 @@ def sample_mask(idx, l):
 def load_data(dataset_str):
     """Load data."""
     names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
+
     objects = []
     for i in range(len(names)):
         with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
@@ -33,8 +34,20 @@ def load_data(dataset_str):
                 objects.append(pkl.load(f))
 
     x, y, tx, ty, allx, ally, graph = tuple(objects)
+        # the size of the data is using the CORA as an example
+    # 'x' 140*1433 which is the labeled feature vectors of training data
+    # 'y' 140*7 which is the ground truth labels for taining. There are 7 categories,
+    #     each row a one-hot vector.
+    # 'allx' 1708*1433 the feature vectors of both labeled and unlabeled data
+    # 'graph' len(graph)=2708, where 2708 is the total number of data
+    #         a diction in format index: [index_of_cited_papers]
+    # 'ally' 1708*7 are the one-hot labels of the training set 
+    # 'tx', the feature vectors of the test instances
+    # 'ty', the one-hot labels of the test instances 
     test_idx_reorder = parse_index_file("data/ind.{}.test.index".format(dataset_str))
+    #test_idx_reorder is 1000 randomly ordered index of testing instances
     test_idx_range = np.sort(test_idx_reorder)
+    #test_idx_range is from 1708 to 2707 the second half of the testing index
 
     if dataset_str == 'citeseer':
         # Fix citeseer dataset (there are some isolated nodes in the graph)
@@ -48,15 +61,18 @@ def load_data(dataset_str):
         ty = ty_extended
 
     features = sp.vstack((allx, tx)).tolil()
+    # features 2708*1433 is set of all feature vectors for 2708 instances 
+    #          vstack() nvertically stack allx and tx and convert it to a linked list
     features[test_idx_reorder, :] = features[test_idx_range, :]
+
     adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
 
-    labels = np.vstack((ally, ty))
-    labels[test_idx_reorder, :] = labels[test_idx_range, :]
+    labels = np.vstack((ally, ty)) #all one-hot labels 2708x7 
+    labels[test_idx_reorder, :] = labels[test_idx_range, :] # shuffle the labels
 
-    idx_test = test_idx_range.tolist()
-    idx_train = range(len(y))
-    idx_val = range(len(y), len(y)+500)
+    idx_test = test_idx_range.tolist() # testing
+    idx_train = range(len(y)) # training
+    idx_val = range(len(y), len(y)+500) # validation
 
     train_mask = sample_mask(idx_train, labels.shape[0])
     val_mask = sample_mask(idx_val, labels.shape[0])
@@ -77,6 +93,8 @@ def sparse_to_tuple(sparse_mx):
     def to_tuple(mx):
         if not sp.isspmatrix_coo(mx):
             mx = mx.tocoo()
+        # mx.row gives a row vector (2708x1) stores the row coordinate of the mx
+        # mx.col gives a row vector (2708x1) stores the col coordinate of the mx
         coords = np.vstack((mx.row, mx.col)).transpose()
         values = mx.data
         shape = mx.shape
@@ -93,18 +111,18 @@ def sparse_to_tuple(sparse_mx):
 
 def preprocess_features(features):
     """Row-normalize feature matrix and convert to tuple representation"""
-    rowsum = np.array(features.sum(1))
+    rowsum = np.array(features.sum(1)) # sum up each row adj[0,:].sum()
     r_inv = np.power(rowsum, -1).flatten()
     r_inv[np.isinf(r_inv)] = 0.
-    r_mat_inv = sp.diags(r_inv)
-    features = r_mat_inv.dot(features)
+    r_mat_inv = sp.diags(r_inv) #r_mat_inv is 2708 x 2708
+    features = r_mat_inv.dot(features) #normalise the feature matrix
     return sparse_to_tuple(features)
 
 
 def normalize_adj(adj):
     """Symmetrically normalize adjacency matrix."""
-    adj = sp.coo_matrix(adj)
-    rowsum = np.array(adj.sum(1))
+    adj = sp.coo_matrix(adj) # A sparse matrix in COOrdinate format.
+    rowsum = np.array(adj.sum(1)) 
     d_inv_sqrt = np.power(rowsum, -0.5).flatten()
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
